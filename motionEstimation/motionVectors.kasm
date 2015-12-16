@@ -170,9 +170,7 @@ beginloop 4 ; for number of rows
   	add L9, L9, #1
   	add L11, L11, #1
   endloop
-  	;add L9, L10, #6
-  	;add L10, L10, #6
-	;add L9, L9, #2 ; then it should point start first element in the next row of the block PE dependent
+	
 	add L9, L9, L21 ; then it should point start first element in the next row of the block PE dependent
 endloop
 
@@ -195,11 +193,7 @@ addxz L29, L29 ltc L27 cmp bspush
 	move L24, L7 ; most updated motion vector
 	move L25, L8
 bsnot
-	;add L11, L26, #16 ;if recent computed redundant is not the best, just over write it next time.
 	sub L11, L11, #16 ;if recent computed redundant is not the best, just over write it next time.
-	;**********************************
-	; potential bug
-	;**********************************
 bspop
 
 MACROEND
@@ -385,6 +379,7 @@ move L28, #255
 
 move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
 ;*****************************************************************
+
 beginloop 3 ;execute for 3 steps along column
 beginloop 3; execute 3 blocks along one row
 
@@ -713,6 +708,7 @@ move L27, #255 ; [L28, L27] stores SAD, initially set to max
 move L28, #255
 
 move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
+
 ;*************************************************************
 ; start Executing a row of blocks
 ;*************************************************************
