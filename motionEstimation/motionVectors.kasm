@@ -187,10 +187,19 @@ addxz L29, L29 ltc L27 cmp bspush
 
         sub L26, L11, #16 ;The starting address of best redundant
 	
+	;wrap back the address
+	addxz L11, L11 equalc L23 bspush
+		sub L11, L11, #32 ;wrap back to address #200
+	bspop
+	
 	move L24, L7 ; most updated motion vector
 	move L25, L8
 bsnot
-	add L11, L26, #16 ;if recent computed redundant is not the best, just over write it next time.
+	;add L11, L26, #16 ;if recent computed redundant is not the best, just over write it next time.
+	sub L11, L11, #16 ;if recent computed redundant is not the best, just over write it next time.
+	;**********************************
+	; potential bug
+	;**********************************
 bspop
 
 MACROEND
@@ -374,6 +383,7 @@ move L16, #0 ; used to check for over flow
 move L27, #255 ; [L28, L27] stores SAD, initially set to max
 move L28, #255
 
+move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
 ;*****************************************************************
 beginloop 3 ;execute for 3 steps along column
 beginloop 3; execute 3 blocks along one row
@@ -483,6 +493,8 @@ addxz L0, L0 equalc L31 bspush
 	move L21, #2
 	move L7, #0
 	move L8, #2
+	
+	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;  PE1 stores 8 pixes in each row for anchor Image
@@ -492,6 +504,8 @@ addxz L0, L0 equalc L31 bspush
 	move L7, #0
 	sub L7, L7, #2
 	move L8, #2
+	
+	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;  PE2 stores 8 pixes in each row for anchor Image
@@ -501,6 +515,8 @@ addxz L0, L0 equalc L31 bspush
 	move L7, #0
 	sub L7, L7, #2
 	move L8, #2
+	
+	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;  PE3 stores 6 pixes in each row for anchor Image
@@ -510,14 +526,17 @@ addxz L0, L0 equalc L31 bspush
 	move L7, #0
 	sub L7, L7, #2
 	move L8, #2
+	
+	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;*************************************************************
-; Computer the motion Vectors
+; Compute the motion Vectors
 ;*************************************************************
 move L24, #0 ; x - motion vec (most updated)
 move L25, #0 ; y - motion vec (most updated)
 
+sub L10, L10, L5 ; move L10 just one row up so that its address matches starting address of next row of blocks
 move L9, L10 ; starting address for anchor frame, L10 will have latest value from previous run
 
 move L11, #200 ; the temp starting address to write back redundant
@@ -527,6 +546,8 @@ move L16, #0 ; used to check for over flow
 
 move L27, #255 ; [L28, L27] stores SAD, initially set to max
 move L28, #255
+
+move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
 
 ;*************************************************************
 ; start Executing a row of blocks
@@ -637,6 +658,8 @@ addxz L0, L0 equalc L31 bspush
 	move L21, #2
 	move L7, #0
 	move L8, #2
+	
+	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;  PE1 stores 8 pixes in each row for anchor Image
@@ -646,6 +669,8 @@ addxz L0, L0 equalc L31 bspush
 	move L7, #0
 	sub L7, L7, #2
 	move L8, #2
+	
+	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;  PE2 stores 8 pixes in each row for anchor Image
@@ -655,6 +680,8 @@ addxz L0, L0 equalc L31 bspush
 	move L7, #0
 	sub L7, L7, #2
 	move L8, #2
+	
+	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;  PE3 stores 6 pixes in each row for anchor Image
@@ -664,6 +691,8 @@ addxz L0, L0 equalc L31 bspush
 	move L7, #0
 	sub L7, L7, #2
 	move L8, #2
+	
+	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
 bspop
 
 ;*************************************************************
@@ -672,6 +701,7 @@ bspop
 move L24, #0 ; x - motion vec (most updated)
 move L25, #0 ; y - motion vec (most updated)
 
+sub L10, L10, L5 ; move L10 just one row up so that its address matches starting address of next row of blocks
 move L9, L10 ; starting address for anchor frame, L10 will have latest value from previous run
 
 move L11, #200 ; the temp starting address to write back redundant
@@ -682,6 +712,7 @@ move L16, #0 ; used to check for over flow
 move L27, #255 ; [L28, L27] stores SAD, initially set to max
 move L28, #255
 
+move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
 ;*************************************************************
 ; start Executing a row of blocks
 ;*************************************************************
