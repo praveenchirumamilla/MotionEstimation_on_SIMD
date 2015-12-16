@@ -1,8 +1,8 @@
 ;************************************************************
 ; Purpose: Kestrel program for implementing motion estimation for 16x16 image
 ; Author: Praveen Kumar Chirumamilla
-; Compilation: newkasm -o kGaussConv.ko kGaussConv.kasm
-; Execution: kestrel kGaussConv.ko kin kout 16
+; Compilation: newkasm -o motionVectors.ko motionVectors.kasm
+; Execution: kestrel motionVectors.ko kin kout 4
 ;*************************************************************
 start:
 bsclearm
