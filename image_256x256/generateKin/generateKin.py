@@ -34,10 +34,10 @@ def generateKin():
 			
 			count += 1
 
-	# write 16rows of newimage follwed by 16 rows of anchor image for 14 times
-	for i in range(14):
-		# write 16 lines of newImage to kin
-		for i in range(16):
+	# write 12rows of newimage follwed by 12 rows of anchor image for 19 times
+	for i in range(19):
+		# write 12 lines of newImage to kin
+		for i in range(12):
 			count = 0
 			value = ""
 	
@@ -49,8 +49,8 @@ def generateKin():
 				count += 1
 	
 		
-		# write 16 lines of anchor image to kin
-		for i in range(16):
+		# write 12 lines of anchor image to kin
+		for i in range(12):
 			count = 0
 			value = ""
 	
@@ -62,9 +62,9 @@ def generateKin():
 				count += 1
 
 
-	#at the end write remaining 16 rows of newImage and 14 rows of anchor image
-	# write last 16 lines of newImage to kin
-	for i in range(16):
+	#at the end write remaining 12 rows of newImage and 10 rows of anchor image
+	# write last 12 lines of newImage to kin
+	for i in range(12):
 		count = 0
 		value = ""
 
@@ -76,8 +76,8 @@ def generateKin():
 			count += 1
 
 	
-	# write last 14 lines of anchor image to kin
-	for i in range(14):
+	# write last 10 lines of anchor image to kin
+	for i in range(10):
 		count = 0
 		value = ""
 
