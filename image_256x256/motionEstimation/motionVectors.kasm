@@ -1,0 +1,812 @@
+;************************************************************
+; Purpose: Kestrel program for implementing motion estimation for 16x16 image
+; Author: Praveen Kumar Chirumamilla
+; Compilation: newkasm -o motionVectors.ko motionVectors.kasm
+; Execution: kestrel motionVectors.ko kin kout 4
+;*************************************************************
+start:
+bsclearm
+
+DEFINE SAD_RESULT_ADDR 200
+
+BEGINCOND
+
+;*************************************************************
+; Macro definition for moving an element from kin to SRAM
+;*************************************************************
+MACRODEF move_to_sram()
+
+move R2, L2, qtoscr
+nop
+nop
+scrtoimm
+move L3, #scr
+addxz L3, L3, write(L1)
+add L1, L1, #1
+
+MACROEND
+
+;*************************************************************
+; write result to kout
+;  i) before calling thid function, memory address
+;     should be written to L26
+;*************************************************************
+MACRODEF write_byte_from_pe_to_kout()
+
+move L1, bs
+read(L26)
+move L22, mdr, bscondlatch
+
+beginloop 8
+        nop
+        cbssleft
+        fbaco bscondleft
+endloop
+
+cbstoscr
+addxz L1, L1, bscondlatch
+
+; write the result from scr to kout,
+; I use FORCE to make sure this works even when PE0 is masked
+
+scrtoimm
+;FORCEQOUT move L22, #scr, arrtoq ; works for other PE's
+FORCEQOUT addxz L22, L22, arrtoq ;works for PE0
+
+MACROEND
+
+;*************************************************************
+; write result to kout for all PE's except PE0
+;  i) before calling thid function, memory address
+;     should be written to L26
+;*************************************************************
+MACRODEF write_byte_from_any_pe_to_kout()
+
+move L1, bs
+read(L26)
+move L22, mdr, bscondlatch
+
+beginloop 8
+        nop
+        cbssleft
+        fbaco bscondleft
+endloop
+
+cbstoscr
+addxz L1, L1, bscondlatch
+
+; write the result from scr to kout,
+; I use FORCE to make sure this works even when PE0 is masked
+
+scrtoimm
+FORCEQOUT move L22, #scr, arrtoq ; works for other PE's
+;FORCEQOUT addxz L22, L22, arrtoq ;works for PE0
+
+MACROEND
+
+;*************************************************************
+; write motion vector to kout
+;*************************************************************
+MACRODEF write_motion_vector_to_kout()
+
+; move X to Kout
+move L1, bs
+move L22, L24, bscondlatch
+
+beginloop 8
+        nop
+        cbssleft
+        fbaco bscondleft
+endloop
+
+cbstoscr
+addxz L1, L1, bscondlatch
+
+; write the result from scr to kout,
+; I use FORCE to make sure this works even when PE0 is masked
+
+scrtoimm
+FORCEQOUT move L22, #scr, arrtoq
+
+; move Y to kout
+move L1, bs
+move L22, L25, bscondlatch
+
+beginloop 8
+        nop
+        cbssleft
+        fbaco bscondleft
+endloop
+
+cbstoscr
+addxz L1, L1, bscondlatch
+
+; write the result from scr to kout,
+; I use FORCE to make sure this works even when PE0 is masked
+
+scrtoimm
+FORCEQOUT move L22, #scr, arrtoq
+
+MACROEND
+
+;*************************************************************
+; Execute one block
+;*************************************************************
+MACRODEF execute_block_matching_motion_vec_generation()
+
+beginloop 4 ; for number of rows
+  beginloop 4 ; for one row of block
+  
+	move L15, #0 ; reset over flow carry before each match  
+  	
+	read(L1)
+  	move L12, mdr  ; element from block
+  
+  	read(L9)
+  	move L13, mdr  ; element from anchor image
+  
+  	; The signed  difference is stored in L14
+  	sub L14, L13, L12 ; L14 = (#anchor - #new Img)
+  	subzz mp L15 ; the over flow carry
+  	
+  	; store back the signed difference in RAM
+  	addxz L14, L14, write(L11)	
+	
+  	; in case of over flow find the absolute difference
+  	addxz L15, L15 sltc L16 bspush
+  		maxc L17, L13, L12
+  		minc L18, L13, L12
+  		sub L19, L17, L18 ;absolute difference
+  		 	
+  		add L29, L29, L19 ; sum of absolute differences
+  		addxz mp L30, L30
+  	bsnot
+  		add L29, L29, L14
+  		addxz mp L30, L30
+  	bspop
+  
+  	;increment address pointers
+  	add L1, L1, #1
+  	add L9, L9, #1
+  	add L11, L11, #1
+  endloop
+	
+	add L9, L9, L21 ; then it should point start first element in the next row of the block PE dependent
+endloop
+
+; Check if SAD is less than the previous:
+;    i). If so adjust the motion vector
+;   ii). and addjust the redundant data starting address
+;
+addxz L30, L30 ltc L28
+addxz L29, L29 ltc L27 cmp bspush
+	move L27, L29 ;get the smallest SAD into [L27, L28]
+	move L28, L30 
+
+        sub L26, L11, #16 ;The starting address of best redundant
+	
+	;wrap back the address
+	addxz L11, L11 equalc L23 bspush
+		sub L11, L11, #32 ;wrap back to address #210
+	bspop
+	
+	move L24, L7 ; most updated motion vector
+	move L25, L8
+bsnot
+	sub L11, L11, #16 ;if recent computed redundant is not the best, just over write it next time.
+bspop
+
+MACROEND
+
+;*************************************************************
+; Configures L0 in all PE's with its id
+;*************************************************************
+addzz L0
+beginloop 128
+	add R0, L0, #1
+endloop
+
+;*************************************************************
+; Read the templet into SRAM
+;	i). move only the blocks corresponding to each PE
+;*************************************************************
+; repeat this process row number of times so that,
+; each PE gets all the blocks it is going handle
+
+move L1, #0
+beginloop 16
+	; move first 4 elements into PE0
+	move L31, #0
+
+	beginloop 64
+		addxz L0, L0 equalc L31 bspush
+			beginloop 4 
+				move_to_sram()
+			endloop
+		bspop
+		
+		; move next 4 elements into next PE
+		add L31, L31,  #1
+
+	endloop
+endloop
+
+;****************************************************
+; Configure the pixel bounds for the image
+;   i). set a lower bound and an upper bound in each PE 
+;       so that only pixel count falling in that range 
+;       will be grabbed by that PE
+;****************************************************
+; L4 - Lower Bound
+; L5 - Upper Bound
+; L6 - Pixel Count (this is global)
+
+; PE0 should have pixels[5:0]
+move L31, #0
+addxz L0, L0 equalc L31 bspush
+	move L4, #0
+	move L5, #7
+bspop
+
+; PE1 should have pixels[9:2]
+move L31, #1
+addxz L0, L0 equalc L31 bspush
+	move L4, #2
+	move L5, #11
+bspop
+
+; for PE's 2 and above
+beginloop 62
+addxz L31, L31 equalc L0 bspush
+	add R4, L4, #4
+	add R5, L5, #4
+bspop
+add L31, L31, #1
+endloop
+
+; configure uper limit for last PE
+;  upper limit for last PE should be 257, as it is not possible to store in a reg
+;  the last two pixels will be handled separately.
+
+move L31, #63
+addxz L31, L31 equalc L0 bspush
+	move L5, #255
+bspop
+ 
+
+;*************************************************************
+; Move in the the useful pixels from Anchor image into each PE
+; 	i). move a pixel to SRAM in PEn if 
+;		Lower Bound << pixel Count << Upper Bound
+;      ii). for first time i need to load rows of anchor image
+;*************************************************************
+beginloop 18
+	move L6, #1
+	beginloop 254
+		; get a new pixel into #scr
+		move R2, L2, qtoscr
+		nop
+		nop
+		scrtoimm
+		move L3, #scr
+		
+		; only enable the eligible PE's
+		addxz L4, L4 ltc L6 bspush
+			addxz L6, L6 ltc L5 bspush
+		 		;copy the pixel to SRAM
+				addxz L3, L3, write(L1)
+				add L1, L1, #1
+			bspop
+		bspop
+		add L6, L6, #1
+	endloop
+
+	;get the last two pixels into last PE
+	move L31, #63
+	beginloop 2
+		; get a new pixel into #scr
+		move R2, L2, qtoscr
+		nop
+		nop
+		scrtoimm
+		move L3, #scr
+		
+		; only enable the last PE
+		addxz L31, L31 equalc L0 bspush
+		 	;copy the pixel to SRAM
+			addxz L3, L3, write(L1)
+			add L1, L1, #1
+		bspop
+	
+	endloop
+endloop
+
+;*************************************************************
+; address displacement for next row in memory
+;   i). after processing along one row of block, the starting 
+;       address of next row in block ex: [3,0] -> [0, -1]
+;*************************************************************
+
+;  PE0 stores 6 pixes in each row for anchor Image
+move L31, #0
+addxz L0, L0 equalc L31 bspush
+	move L21, #2
+	move L7, #0
+	move L8, #0
+bspop
+
+; configure for all the PE's with ID > 0
+; All PE's 1 <= PE <= 62 stores 8 pixels in each row for anchor image
+addxz L31, L31 ltc L0 bspush
+	move L21, #4
+	move L7, #0
+	sub L7, L7, #2
+	move L8, #0
+bspop
+	
+;  PE63 stores 6 pixes in each row for anchor Image
+move L31, #63
+addxz L0, L0 equalc L31 bspush
+	move L21, #2
+	move L7, #0
+	sub L7, L7, #2
+	move L8, #0
+bspop
+
+breakpoint
+;*************************************************************
+; Computer the motion Vectors
+;*************************************************************
+
+; motion vector for PE0
+
+;move L7, #0 ; x - motion vec (temp)
+;move L8, #0 ; y - motion vec (temp)
+
+move L24, #0 ; x - motion vec (most updated)
+move L25, #0 ; y - motion vec (most updated)
+
+move L9, #64 ; starting address for anchor frame
+move L10, #64 ; reference starting addres of anchor frame
+
+move L11, #210 ; the temp starting address to write back redundant
+move L26, #210 ; The final starting address of best redundant in SRAM
+
+move L16, #0 ; used to check for over flow
+
+move L27, #255 ; [L28, L27] stores SAD, initially set to max
+move L28, #255
+
+move L23, #242 ; this is to bound the redundant data to wrie only btw [210-242] area in SRAM
+;*****************************************************************
+
+beginloop 3 ;execute for 3 steps along column
+beginloop 3; execute 3 blocks along one row
+
+move L1, #0  ; reset Sram pointer
+
+move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+move L30, #0 
+
+execute_block_matching_motion_vec_generation()
+
+; reset the required parameter for next block along the row.
+add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+add L10, L10, #1
+
+;increment the motion vector along the row
+add L7, L7, #1
+addxz L8, L8
+
+endloop
+
+; if 0 < PE_ID < 63 then execute 2 more blocks along the row
+move L20, #63 ; max PE ID
+move L31, #0
+
+addxz L31, L31 ltc L0 bspush
+  addxz L0, L0 ltc L20 bspush ;except first and last PE
+   beginloop 2
+	move L1, #0  ; reset Sram pointer
+
+	move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+	move L30, #0 
+	
+	execute_block_matching_motion_vec_generation()
+
+	; reset the required parameter for next block along the row.
+	add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+	add L10, L10, #1
+
+	;increment the motion vector along the row
+	add L7, L7, #1
+	addxz L8, L8
+   endloop
+  bspop
+bspop
+
+
+;adjust the motion vector, reset the X and decrement Y
+;Except 1st & last PE, each PE executes 2 additional blocks in the row
+sub L7, L7, #3
+sub L8, L8, #1
+addxz L31, L31 ltc L0 bspush
+  addxz L0, L0 ltc L20 bspush ;except first and last PE
+	sub L7, L7, #2
+  bspop
+bspop
+
+;the anchor should matching starting next row
+add L9, L10, #3 ; PE dependent
+move L10, L9
+
+endloop
+
+; copy the content of L1 before L1 reg is re used below
+; I am using L20 as temp register
+move L20, L1 
+;***************************************************
+; write back the result to kout
+;   i). first write motion vector (x,y)
+;  ii). followed by write redundant
+;***************************************************
+; motion vector for PE0
+move L31, #0
+addxz L0, L0 equalc L31 bspush
+write_motion_vector_to_kout()
+beginloop 16
+	 write_byte_from_pe_to_kout()
+	 add L26, L26, #1 
+endloop
+bspop
+
+; motion vector for other PE's
+move L31, #1
+beginloop 63
+addxz L0, L0 equalc L31 bspush
+	write_motion_vector_to_kout()
+	beginloop 16
+		 write_byte_from_any_pe_to_kout()
+	 	add L26, L26, #1 
+	endloop
+bspop
+
+add L31, L31, #1
+endloop
+
+move L1, L20 ; restore the value of L1
+
+;;***************************************************
+;; Execute all the blocks in rows between first & last
+;; row of blocks
+;;***************************************************
+;beginloop 2
+;
+;;  PE0 stores 6 pixes in each row for anchor Image
+;move L31, #0
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #2
+;	move L7, #0
+;	move L8, #2
+;	
+;	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;  PE1 stores 8 pixes in each row for anchor Image
+;move L31, #1
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #4
+;	move L7, #0
+;	sub L7, L7, #2
+;	move L8, #2
+;	
+;	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;  PE2 stores 8 pixes in each row for anchor Image
+;move L31, #2
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #4
+;	move L7, #0
+;	sub L7, L7, #2
+;	move L8, #2
+;	
+;	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;  PE3 stores 6 pixes in each row for anchor Image
+;move L31, #3
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #2
+;	move L7, #0
+;	sub L7, L7, #2
+;	move L8, #2
+;	
+;	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;*************************************************************
+;; Compute the motion Vectors
+;;*************************************************************
+;move L24, #0 ; x - motion vec (most updated)
+;move L25, #0 ; y - motion vec (most updated)
+;
+;sub L10, L10, L5 ; move L10 just one row up so that its address matches starting address of next row of blocks
+;move L9, L10 ; starting address for anchor frame, L10 will have latest value from previous run
+;
+;move L11, #200 ; the temp starting address to write back redundant
+;move L26, #200 ; The final starting address of best redundant in SRAM
+;
+;move L16, #0 ; used to check for over flow
+;
+;move L27, #255 ; [L28, L27] stores SAD, initially set to max
+;move L28, #255
+;
+;move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
+;
+;;*************************************************************
+;; start Executing a row of blocks
+;;*************************************************************
+;beginloop 5 ;execute for 5 steps along column
+;beginloop 3; execute 3 blocks along one row
+;
+;move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+;move L30, #0 
+;
+;execute_block_matching_motion_vec_generation()
+;
+;; reset the required parameter for next block along the row.
+;add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+;add L10, L10, #1
+;
+;;increment the motion vector along the row
+;add L7, L7, #1
+;addxz L8, L8
+;sub L1, L1, #16 ;next time it starts starting address of new image block
+;endloop
+;
+;; if 0 < PE_ID < 3 then execute 2 more blocks along the row
+;move L20, #3 ; max PE ID
+;move L31, #0
+;
+;addxz L31, L31 ltc L0 bspush
+;  addxz L0, L0 ltc L20 bspush ;except first and last PE
+;   beginloop 2
+;	move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+;	move L30, #0 
+;	
+;	execute_block_matching_motion_vec_generation()
+;
+;	; reset the required parameter for next block along the row.
+;	add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+;	add L10, L10, #1
+;
+;	;increment the motion vector along the row
+;	add L7, L7, #1
+;	addxz L8, L8
+;	sub L1, L1, #16 ;next time it starts starting address of new image block
+;   endloop
+;  bspop
+;bspop
+;
+;
+;;adjust the motion vector, reset the X and decrement Y
+;;Except 1st & last PE, each PE executes 2 additional blocks in the row
+;sub L7, L7, #3
+;sub L8, L8, #1
+;addxz L31, L31 ltc L0 bspush
+;  addxz L0, L0 ltc L20 bspush ;except first and last PE
+;	sub L7, L7, #2
+;  bspop
+;bspop
+;
+;;the anchor should matching starting next row
+;add L9, L10, #3 ; PE dependent
+;move L10, L9
+;
+;endloop
+;
+;; copy the content of L1 before L1 reg is re used below
+;; I am using L20 as temp register
+;move L20, L1 
+;;***************************************************
+;; write back the result to kout
+;;   i). first write motion vector (x,y)
+;;  ii). followed by write redundant
+;;***************************************************
+;; motion vector for PE0
+;move L31, #0
+;addxz L0, L0 equalc L31 bspush
+;write_motion_vector_to_kout()
+;beginloop 16
+;	 write_byte_from_pe_to_kout()
+;	 add L26, L26, #1 
+;endloop
+;bspop
+;
+;; motion vector for other PE's
+;move L31, #1
+;beginloop 3
+;addxz L0, L0 equalc L31 bspush
+;	write_motion_vector_to_kout()
+;	beginloop 16
+;		 write_byte_from_any_pe_to_kout()
+;	 	add L26, L26, #1 
+;	endloop
+;bspop
+;
+;add L31, L31, #1
+;endloop
+;
+;; restore the value of L1
+;move L1, L20 
+;
+;add L1, L1, #16 ;to make sure it points correct block in memory each time
+;endloop
+;
+;;***************************************************
+;; Execute the last row of blocks
+;;***************************************************
+;;  PE0 stores 6 pixes in each row for anchor Image
+;move L31, #0
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #2
+;	move L7, #0
+;	move L8, #2
+;	
+;	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;  PE1 stores 8 pixes in each row for anchor Image
+;move L31, #1
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #4
+;	move L7, #0
+;	sub L7, L7, #2
+;	move L8, #2
+;	
+;	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;  PE2 stores 8 pixes in each row for anchor Image
+;move L31, #2
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #4
+;	move L7, #0
+;	sub L7, L7, #2
+;	move L8, #2
+;	
+;	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;  PE3 stores 6 pixes in each row for anchor Image
+;move L31, #3
+;addxz L0, L0 equalc L31 bspush
+;	move L21, #2
+;	move L7, #0
+;	sub L7, L7, #2
+;	move L8, #2
+;	
+;	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+;bspop
+;
+;;*************************************************************
+;; Computer the motion Vectors
+;;*************************************************************
+;move L24, #0 ; x - motion vec (most updated)
+;move L25, #0 ; y - motion vec (most updated)
+;
+;sub L10, L10, L5 ; move L10 just one row up so that its address matches starting address of next row of blocks
+;move L9, L10 ; starting address for anchor frame, L10 will have latest value from previous run
+;
+;move L11, #200 ; the temp starting address to write back redundant
+;move L26, #200 ; The final starting address of best redundant in SRAM
+;
+;move L16, #0 ; used to check for over flow
+;
+;move L27, #255 ; [L28, L27] stores SAD, initially set to max
+;move L28, #255
+;
+;move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
+;
+;;*************************************************************
+;; start Executing a row of blocks
+;;*************************************************************
+;beginloop 3 ;execute for 3 steps along column
+;beginloop 3; execute 3 blocks along one row
+;
+;move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+;move L30, #0 
+;
+;execute_block_matching_motion_vec_generation()
+;
+;; reset the required parameter for next block along the row.
+;add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+;add L10, L10, #1
+;
+;;increment the motion vector along the row
+;add L7, L7, #1
+;addxz L8, L8
+;sub L1, L1, #16 ;next time it starts starting address of new image block
+;endloop
+;
+;; if 0 < PE_ID < 3 then execute 2 more blocks along the row
+;move L20, #3 ; max PE ID
+;move L31, #0
+;
+;addxz L31, L31 ltc L0 bspush
+;  addxz L0, L0 ltc L20 bspush ;except first and last PE
+;   beginloop 2
+;	move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+;	move L30, #0 
+;	
+;	execute_block_matching_motion_vec_generation()
+;
+;	; reset the required parameter for next block along the row.
+;	add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+;	add L10, L10, #1
+;
+;	;increment the motion vector along the row
+;	add L7, L7, #1
+;	addxz L8, L8
+;	sub L1, L1, #16 ;next time it starts starting address of new image block
+;   endloop
+;  bspop
+;bspop
+;
+;
+;;adjust the motion vector, reset the X and decrement Y
+;;Except 1st & last PE, each PE executes 2 additional blocks in the row
+;sub L7, L7, #3
+;sub L8, L8, #1
+;addxz L31, L31 ltc L0 bspush
+;  addxz L0, L0 ltc L20 bspush ;except first and last PE
+;	sub L7, L7, #2
+;  bspop
+;bspop
+;
+;;the anchor should matching starting next row
+;add L9, L10, #3 ; PE dependent
+;move L10, L9
+;
+;endloop
+;
+;; copy the content of L1 before L1 reg is re used below
+;; I am using L20 as temp register
+;move L20, L1 
+;;***************************************************
+;; write back the result to kout
+;;   i). first write motion vector (x,y)
+;;  ii). followed by write redundant
+;***************************************************
+; motion vector for PE0
+;move L31, #0
+;addxz L0, L0 equalc L31 bspush
+;write_motion_vector_to_kout()
+;beginloop 16
+;	 write_byte_from_pe_to_kout()
+;	 add L26, L26, #1 
+;endloop
+;bspop
+;
+;; motion vector for other PE's
+;move L31, #1
+;beginloop 3
+;addxz L0, L0 equalc L31 bspush
+;	write_motion_vector_to_kout()
+;	beginloop 16
+;		 write_byte_from_any_pe_to_kout()
+;	 	add L26, L26, #1 
+;	endloop
+;bspop
+;
+;add L31, L31, #1
+;endloop
+;
+;; restore the value of L1
+;move L1, L20 
+;
+;add L1, L1, #16 ;to make sure it points correct block in memory each time
+
+ENDCOND
+
