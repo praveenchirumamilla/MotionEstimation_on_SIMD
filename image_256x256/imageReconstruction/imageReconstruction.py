@@ -48,14 +48,12 @@ def imageReconstruction(anchorImage, motionVecFile):
 		aImgRow = blkRow - colVec[0]			
 		aImgCol = blkCol + rowVec[0]			
 	
-		#print "blk = " + str(blk) + " " + str((blkRow, blkCol)) + " " + str((rowVec[0], colVec[0])) + " " + str((aImgRow, aImgCol))
 		for bRow in range(rowsInBlk):
 			for bCol in range(rowsInBlk):
 
 				data[0] = int(mFile.readline())
 				nImage[blkRow][blkCol] = aImage[aImgRow][aImgCol] - data[0]
 				
-				#print str((blkRow, blkCol)) + " " + str((blkRow, blkCol)) + " " +str((aImgRow, aImgCol))
 				#increment the column indices
 				blkCol  += 1
 				aImgCol += 1
