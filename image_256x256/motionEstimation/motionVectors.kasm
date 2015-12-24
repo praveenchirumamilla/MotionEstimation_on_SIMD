@@ -873,6 +873,7 @@ beginloop 19
 	;***************************************************
 	; Execute remaining three rows of blocks
 	;***************************************************
+	move L1, #0  ; ***************************************************************** I modified it for debug ***********
 	beginloop 3
 	
 	;  PE0 stores 6 pixes in each row for anchor Image
@@ -927,7 +928,6 @@ beginloop 19
 	
 	move L23, #242 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
 	
-	breakpoint
 	;*************************************************************
 	; start Executing a row of blocks
 	;*************************************************************
@@ -1235,6 +1235,7 @@ endloop
 ;***************************************************
 ; Execute first two rows of blocks
 ;***************************************************
+move L1, #0
 beginloop 2
 
 ;  PE0 stores 6 pixes in each row for anchor Image
