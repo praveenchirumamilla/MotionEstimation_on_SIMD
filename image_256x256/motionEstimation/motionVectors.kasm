@@ -1,13 +1,12 @@
 ;************************************************************
-; Purpose: Kestrel program for implementing motion estimation for 16x16 image
+; Purpose: Kestrel program for implementing motion estimation 
+;          for 256x256 image
 ; Author: Praveen Kumar Chirumamilla
 ; Compilation: newkasm -o motionVectors.ko motionVectors.kasm
-; Execution: kestrel motionVectors.ko kin kout 4
+; Execution: kestrel motionVectors.ko kin kout 64
 ;*************************************************************
 start:
 bsclearm
-
-DEFINE SAD_RESULT_ADDR 200
 
 BEGINCOND
 
@@ -414,6 +413,7 @@ move L27, #255 ; [L28, L27] stores SAD, initially set to max
 move L28, #255
 
 move L23, #242 ; this is to bound the redundant data to wrie only btw [210-242] area in SRAM
+
 ;*****************************************************************
 
 beginloop 3 ;execute for 3 steps along column
@@ -481,6 +481,7 @@ endloop
 ; copy the content of L1 before L1 reg is re used below
 ; I am using L20 as temp register
 move L20, L1 
+
 ;***************************************************
 ; write back the result to kout
 ;   i). first write motion vector (x,y)
@@ -873,7 +874,7 @@ beginloop 19
 	;***************************************************
 	; Execute remaining three rows of blocks
 	;***************************************************
-	move L1, #0  ; ***************************************************************** I modified it for debug ***********
+	move L1, #0  ; reset the SRAM read pointer for reference image block
 	beginloop 3
 	
 	;  PE0 stores 6 pixes in each row for anchor Image
@@ -1086,7 +1087,6 @@ endloop
 ; ***************************************************************************************************************
 ; Execute the last block of 12 rows
 ; ***************************************************************************************************************
-
 ;first of all clear all the registers
 reset_registers()
 
@@ -1122,7 +1122,6 @@ endloop
 ;*************************************************************
 move L31 , #0
 addxz L31, L31 equalc L0 bspush
-	;add L1, L1, #24              ;previously 4x6 pixels have been copies from [64- ]
 	move L1, #88              ;previously 4x6 pixels have been copies from [64- ]
 	move L10, #70             ; i am using L10 for storing starting adddress of anchor + no of pixels in a row
 bspop
@@ -1130,7 +1129,6 @@ bspop
 ; configure for all the PE's with ID > 0
 ; All PE's 1 <= PE <= 62 stores 8 pixels in each row for anchor image
 addxz L31, L31 ltc L0 bspush
-	;add L1, L1, #32             ;previously 4x8 pixels have been copies from [64- ]
 	move L1, #96             ;previously 4x8 pixels have been copies from [64- ]
 	move L10, #72            ; i am using L10 for storing starting adddress of anchor + no of pixels in a row
 bspop
@@ -1138,7 +1136,6 @@ bspop
 ;  PE63 stores 6 pixes in each row for anchor Image
 move L31, #63
 addxz L0, L0 equalc L31 bspush
-	;add L1, L1, #24              ;previously 4x6 pixels have been copies from [64- ]
 	move L1, #88              ;previously 4x6 pixels have been copies from [64- ]
 	move L10, #70             ; i am using L10 for storing starting adddress of anchor + no of pixels in a row
 bspop
@@ -1232,9 +1229,9 @@ beginloop 10 ;at last there are only 10 rows of anchor image are left to fetch
 	endloop
 endloop
 
-;***************************************************
-; Execute first two rows of blocks
-;***************************************************
+;*****************************************************************************
+; Execute first two rows of block (this is the case for last block of 12 rows)
+;*****************************************************************************
 move L1, #0
 beginloop 2
 
@@ -1448,74 +1445,8 @@ move L28, #255
 
 move L23, #242 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
 
-;;***************************************************
-;; Execute the last row of blocks
-;;***************************************************
-;;  PE0 stores 6 pixes in each row for anchor Image
-;move L31, #0
-;addxz L0, L0 equalc L31 bspush
-;	move L21, #2
-;	move L7, #0
-;	move L8, #2
-;	
-;	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
-;bspop
-;
-;;  PE1 stores 8 pixes in each row for anchor Image
-;move L31, #1
-;addxz L0, L0 equalc L31 bspush
-;	move L21, #4
-;	move L7, #0
-;	sub L7, L7, #2
-;	move L8, #2
-;	
-;	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
-;bspop
-;
-;;  PE2 stores 8 pixes in each row for anchor Image
-;move L31, #2
-;addxz L0, L0 equalc L31 bspush
-;	move L21, #4
-;	move L7, #0
-;	sub L7, L7, #2
-;	move L8, #2
-;	
-;	move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
-;bspop
-;
-;;  PE3 stores 6 pixes in each row for anchor Image
-;move L31, #3
-;addxz L0, L0 equalc L31 bspush
-;	move L21, #2
-;	move L7, #0
-;	sub L7, L7, #2
-;	move L8, #2
-;	
-;	move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
-;bspop
-;
-;;*************************************************************
-;; Computer the motion Vectors
-;;*************************************************************
-;move L24, #0 ; x - motion vec (most updated)
-;move L25, #0 ; y - motion vec (most updated)
-;
-;sub L10, L10, L5 ; move L10 just one row up so that its address matches starting address of next row of blocks
-;move L9, L10 ; starting address for anchor frame, L10 will have latest value from previous run
-;
-;move L11, #200 ; the temp starting address to write back redundant
-;move L26, #200 ; The final starting address of best redundant in SRAM
-;
-;move L16, #0 ; used to check for over flow
-;
-;move L27, #255 ; [L28, L27] stores SAD, initially set to max
-;move L28, #255
-;
-;move L23, #232 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
-;
-
 ;*************************************************************
-; start Executing a row of blocks
+; start Executing the last block
 ;*************************************************************
 beginloop 3 ;execute for 3 steps along column
 beginloop 3; execute 3 blocks along one row
@@ -1579,6 +1510,7 @@ endloop
 ; copy the content of L1 before L1 reg is re used below
 ; I am using L20 as temp register
 move L20, L1 
+
 ;***************************************************
 ; write back the result to kout
 ;   i). first write motion vector (x,y)
