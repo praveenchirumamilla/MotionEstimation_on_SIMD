@@ -722,9 +722,9 @@ addxz L31, L31 ltc L0 bspush
 bspop
 
 ; ***************************************************************************************************************
-; Execute all the blocks of 16 rows each falling in between first & last 16 rows
+; Execute all the blocks of 12 rows each falling in between first block of 16 & last block of 12 rows
 ; ***************************************************************************************************************
-beginloop 14
+beginloop 19
 	;first of all clear all the registers
 	reset_registers()
 
@@ -737,7 +737,7 @@ beginloop 14
 	; each PE gets all the blocks it is going handle
 	
 	move L1, #0
-	beginloop 16
+	beginloop 12
 		; move first 4 elements into PE0
 		move L31, #0
 	
@@ -760,19 +760,25 @@ beginloop 14
 	;*************************************************************
 	move L31 , #0
 	addxz L31, L31 equalc L0 bspush
-		add L1, L1, #24              ;previously 4x6 pixels have been copies from [64- ]
+		;add L1, L1, #24              ;previously 4x6 pixels have been copies from [64- ]
+		move L1, #88              ;previously 4x6 pixels have been copies from [64- ]
+		move L10, #70             ; i am using L10 for storing starting adddress of anchor + no of pixels in a row
 	bspop
 	
 	; configure for all the PE's with ID > 0
 	; All PE's 1 <= PE <= 62 stores 8 pixels in each row for anchor image
 	addxz L31, L31 ltc L0 bspush
-		add L1, L1, #32             ;previously 4x8 pixels have been copies from [64- ]
+		;add L1, L1, #32             ;previously 4x8 pixels have been copies from [64- ]
+		move L1, #96             ;previously 4x8 pixels have been copies from [64- ]
+		move L10, #72            ; i am using L10 for storing starting adddress of anchor + no of pixels in a row
 	bspop
 		
 	;  PE63 stores 6 pixes in each row for anchor Image
 	move L31, #63
 	addxz L0, L0 equalc L31 bspush
-		add L1, L1, #24              ;previously 4x6 pixels have been copies from [64- ]
+		;add L1, L1, #24              ;previously 4x6 pixels have been copies from [64- ]
+		move L1, #88              ;previously 4x6 pixels have been copies from [64- ]
+		move L10, #70             ; i am using L10 for storing starting adddress of anchor + no of pixels in a row
 	bspop
 
 	;****************************************************
@@ -823,7 +829,7 @@ beginloop 14
 	;		Lower Bound << pixel Count << Upper Bound
 	;      ii). for first time i need to load rows of anchor image
 	;*************************************************************
-	beginloop 16
+	beginloop 12
 		move L6, #1
 		beginloop 254
 			; get a new pixel into #scr
@@ -864,15 +870,222 @@ beginloop 14
 		endloop
 	endloop
 
+	;***************************************************
+	; Execute remaining three rows of blocks
+	;***************************************************
+	beginloop 3
+	
+	;  PE0 stores 6 pixes in each row for anchor Image
+	move L31, #0
+	addxz L0, L0 equalc L31 bspush
+		move L21, #2
+		move L7, #0
+		move L8, #2
+		
+		move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+	bspop
+	
+	; configure for all the PE's with ID > 0
+	; All PE's 1 <= PE <= 62 stores 8 pixels in each row for anchor image
+	addxz L31, L31 ltc L0 bspush
+		move L21, #4
+		move L7, #0
+		sub L7, L7, #2
+		move L8, #2
+	
+		move L5, #8 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+	bspop
+		
+	;  PE63 stores 6 pixes in each row for anchor Image
+	move L31, #63
+	addxz L0, L0 equalc L31 bspush
+		move L21, #2
+		move L7, #0
+		sub L7, L7, #2
+		move L8, #2
+	
+	
+		move L5, #6 ; I am reusing L4 for number of pixels per row of anchor Frame in Each PE
+	bspop
+	
+	;*************************************************************
+	; Compute the motion Vectors
+	;*************************************************************
+	move L24, #0 ; x - motion vec (most updated)
+	move L25, #0 ; y - motion vec (most updated)
+	
+	sub L10, L10, L5 ; move L10 just one row up so that its address matches starting address of next row of blocks
+	move L9, L10 ; starting address for anchor frame, L10 will have latest value from previous run
+	
+	move L11, #210 ; the temp starting address to write back redundant
+	move L26, #210 ; The final starting address of best redundant in SRAM
+	
+	move L16, #0 ; used to check for over flow
+	
+	move L27, #255 ; [L28, L27] stores SAD, initially set to max
+	move L28, #255
+	
+	move L23, #242 ; this is to bound the redundant data to wrie only btw [200-232] area in SRAM
+	
 
-	breakpoint
-
-
-
+	;*************************************************************
+	; start Executing a row of blocks
+	;*************************************************************
+	beginloop 5 ;execute for 5 steps along column
+	beginloop 3; execute 3 blocks along one row
+	
+	move L29, #0 ;  [L30, L29] stores temprorary sum of abs differencei
+	move L30, #0 
+	
+	execute_block_matching_motion_vec_generation()
+	
+	; reset the required parameter for next block along the row.
+	add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+	add L10, L10, #1
+	
+	;increment the motion vector along the row
+	add L7, L7, #1
+	addxz L8, L8
+	sub L1, L1, #16 ;next time it starts starting address of new image block
+	endloop
+	
+	; if 0 < PE_ID < 63 then execute 2 more blocks along the row
+	move L20, #63 ; max PE ID
+	move L31, #0
+	
+	addxz L31, L31 ltc L0 bspush
+	  addxz L0, L0 ltc L20 bspush ;except first and last PE
+	   beginloop 2
+		move L29, #0 ;  [L30, L29] stores temprorary sum of abs differences
+		move L30, #0 
+		
+		execute_block_matching_motion_vec_generation()
+	
+		; reset the required parameter for next block along the row.
+		add L9, L10, #1 ;starting addr of anchor image to match for  next block processing along row
+		add L10, L10, #1
+	
+		;increment the motion vector along the row
+		add L7, L7, #1
+		addxz L8, L8
+		sub L1, L1, #16 ;next time it starts starting address of new image block
+	   endloop
+	  bspop
+	bspop
+	
+	
+	;adjust the motion vector, reset the X and decrement Y
+	;Except 1st & last PE, each PE executes 2 additional blocks in the row
+	sub L7, L7, #3
+	sub L8, L8, #1
+	addxz L31, L31 ltc L0 bspush
+	  addxz L0, L0 ltc L20 bspush ;except first and last PE
+		sub L7, L7, #2
+	  bspop
+	bspop
+	
+	;the anchor should matching starting next row
+	add L9, L10, #3 ; PE dependent
+	move L10, L9
+	
+	endloop
+	
+	; copy the content of L1 before L1 reg is re used below
+	; I am using L20 as temp register
+	move L20, L1 
+	
+	;***************************************************
+	; write back the result to kout
+	;   i). first write motion vector (x,y)
+	;  ii). followed by write redundant
+	;***************************************************
+	; motion vector for PE0
+	move L31, #0
+	addxz L0, L0 equalc L31 bspush
+	write_motion_vector_to_kout()
+	beginloop 16
+		 write_byte_from_pe_to_kout()
+		 add L26, L26, #1 
+	endloop
+	bspop
+	
+	; motion vector for other PE's
+	move L31, #1
+	beginloop 63
+	addxz L0, L0 equalc L31 bspush
+		write_motion_vector_to_kout()
+		beginloop 16
+			 write_byte_from_any_pe_to_kout()
+		 	add L26, L26, #1 
+		endloop
+	bspop
+	
+	add L31, L31, #1
+	endloop
+	
+	; restore the value of L1
+	move L1, L20 
+	
+	add L1, L1, #16 ;to make sure it points correct block in memory each time
+	endloop
+	
+	;***************************************************
+	; move up the last 4 rows of anchor image in each PE
+	; to starting address = 64
+	;***************************************************
+	move L1, #64
+	
+	move L31 , #0
+	addxz L31, L31 equalc L0 bspush
+		move L5, #136 ; i am using L5 as variable to hold starting address of last four anchor lines in a PE = 64+12*6
+	bspop
+	
+	; configure for all the PE's with ID > 0
+	; All PE's 1 <= PE <= 62 stores 8 pixels in each row for anchor image
+	addxz L31, L31 ltc L0 bspush
+		move L5, #160 ; i am using L5 as variable to hold starting address of last four anchor lines in a PE = 64+12*8
+	bspop
+		
+	;  PE63 stores 6 pixes in each row for anchor Image
+	move L31, #63
+	addxz L0, L0 equalc L31 bspush
+		move L5, #136 ; i am using L5 as variable to hold starting address of last four anchor lines in a PE = 64+12*8
+	bspop
+	
+	; first read 24 pixels in each PE
+	beginloop 24
+		read(L5)
+		move L12, mdr
+		addxz L12, L12, write(L1)
+		
+		;increment read & write pointers
+		add L1, L1, #1
+		add L5, L5, #1	
+	endloop
+	
+	; the PE's 0 < ID < 63 have 8 additional pixels to read
+	move L31, #0
+	move L13, #63
+	addxz L31, L31 ltc L0 bspush
+		addxz L0, L0 ltc L13 bspush
+		beginloop 8
+			read(L5)
+			move L12, mdr
+			addxz L12, L12, write(L1)
+			
+			;increment read & write pointers
+			add L1, L1, #1
+			add L5, L5, #1	
+		endloop
+		bspop
+	bspop
 		
 endloop
 
 
+; ***************************************************************************************************************
+; Execute the last block of 12 rows
+; ***************************************************************************************************************
 
 
 
